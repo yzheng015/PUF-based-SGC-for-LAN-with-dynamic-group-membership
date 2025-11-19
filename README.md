@@ -14,6 +14,6 @@ GKM_verification summary.jpg -----> verifies the security of our proposed GKM pr
 GMM_verification summary.jpg -----> verifies the security of our proposed GMM process 
 
 
-=================Implementation==========================
+================================Implementation==================================
 
 group_key_demo.mp4 -----> shows the protype of our work in a demonstrative video. The network can support 16 nodes. Due to limited FPGA availability, we present the procedures of key establishment and update among 5 devices. 
