@@ -1,0 +1,244 @@
+(*PUF-based Group Key Agreement Protocol——Delete N8 in Fig. 5*)
+(*Add N8 is similiar*)
+(*Set the langual as Pascal if use Notepad++*)
+(*The Most Recent Version Apr-2025*)
+free c: channel.
+
+type host.
+type nonce.
+type flag. 
+type prime.
+
+
+(* H1 functions *)
+fun H1(bitstring):bitstring.
+fun H2(bitstring, bitstring):bitstring.
+fun H3(bitstring, bitstring, nat):bitstring.
+fun H3'(bitstring, bitstring, bitstring):bitstring.
+fun H5(bitstring, bitstring, bitstring, bitstring, bitstring): bitstring.
+fun H6(bitstring, bitstring, bitstring, bitstring, bitstring, bitstring):bitstring.
+
+
+(*--XOR operation--*)
+fun XOR(bitstring, bitstring): bitstring.
+equation forall x: bitstring, y: bitstring; XOR(XOR(x, y), y) = x.
+
+(* Symmetric key encryption *)
+type key.
+fun senc(key, bitstring): bitstring.
+reduc forall k: key, m: bitstring; sdec(k, senc(k,m)) = m.
+(*Proverify manual: we also remind the reader that using MACs in conjunction with symmetric key 
+    encryption is generally useless in Proverify since the basic encryption is already authenticated.*)
+
+
+(* HMAC *)
+fun HMAC(key, bitstring): bitstring.
+
+(*PRF*)
+fun PRF(key, nonce): bitstring.
+
+
+(* PUF *)
+type challenge.
+type response.
+fun PUFA(challenge):response [private].
+fun PUFB(challenge):response [private].
+fun PUFC(challenge):response [private].
+
+(* Signatures *)
+type skey.
+type pkey.
+fun spk(skey): pkey.
+fun sign(bitstring, skey): bitstring.
+reduc forall m: bitstring, k: skey; checksign(sign(m,k), spk(k)) = m.
+
+
+
+(* Data Converter *)
+fun nonce_to_bitstring(nonce): bitstring [data,typeConverter].
+fun bitstring_to_key(bitstring): key [data,typeConverter].
+fun skey_to_nonce(response): nonce [data,typeConverter].
+fun response_to_bitstring(response): bitstring [data,typeConverter].
+fun response_to_key(response): key [data,typeConverter].
+fun challenge_to_bitstring(challenge):bitstring [data, typeConverter].
+fun host_to_bitstring(host): bitstring [data,typeConverter].
+fun prime_to_bitstring(prime): bitstring [data, typeConverter].
+fun key_to_bitstring(key):bitstring [data, typeConverter].
+
+
+(* 2 honest host names A and B *)
+free IDA, IDI, IDJ: host.
+
+
+(* Chinese Remainder Theory*)
+fun CRT(key, prime, key, prime):bitstring. 
+reduc forall s1: key, m1:prime, s2: key, m2: prime; MOD(CRT(s1, m1, s2, m2),m1)=s1. 
+
+
+(* Authentication Queries; L: group leader; M: group member. *)
+event MbeginwithLparam(host,host).
+event LendwithMparam(host,host).
+event LbeginwithMparam(host,host).
+event MendwithLparam(host,host).
+
+
+event MbeginwithLfull(host,host,bitstring, bitstring).
+event LendwithMfull(host,host,bitstring, bitstring).
+event LbeginwithMfull(host,host,bitstring, bitstring).
+event MendwithLfull(host,host,bitstring, bitstring).
+
+(*
+event acceptsL(bitstring).
+event acceptsM(bitstring).
+event termL(bitstring).
+event termM(bitstring).
+
+query x:bitstring; event(termL(x))==>event(acceptsM(x)).
+query x:bitstring; event(termM(x))==>event(acceptsL(x)). *)
+
+(* Secrecy Queries *)
+free messageA, messageI, messageJ: bitstring [private].
+query attacker(messageA).
+query attacker(messageI).
+query attacker(messageJ).
+
+
+(* Strong secrecy 
+	The attacker is unable to distinguish when the secret changes.*)
+
+noninterf messageA. 
+noninterf messageI. 
+noninterf messageJ. 
+
+weaksecret messageA.
+weaksecret messageI.
+weaksecret messageJ.
+
+(* These queries are used to establish the mutual authentication of A and B. 
+These queries also indicate the resistance of the protocol against 
+replay and impersonation attacks *)
+query x:host,y:host; inj-event(MendwithLparam(x,y)) ==> inj-event(LbeginwithMparam(x,y)).
+
+
+query x:host,y:host,p1:bitstring, p2:bitstring; 
+    inj-event(MendwithLfull(x,y,p1,p2)) ==> inj-event(LbeginwithMfull(x,y,p1,p2)).
+
+
+
+query x:host,y:host; event(MendwithLparam(x,y)) ==> event(LbeginwithMparam(x,y)).
+
+
+query x:host,y:host,p1:bitstring, p2:bitstring; 
+    event(MendwithLfull(x,y,p1,p2)) ==> event(LbeginwithMfull(x,y,p1,p2)).
+
+
+
+(*Assume node_I is Node 1 in Fig. 5, N8 exits*)
+let node_I(IDI:host, IDA: host, Ci:challenge, phi_i1:bitstring, TA: nonce, gk:bitstring, phi_xi:bitstring) =
+
+    in(c, (cp:bitstring, Tc4:nonce, m1:prime));
+    let Ri = PUFB(Ci) in
+    let Ki2 = H3(response_to_bitstring(Ri), host_to_bitstring(IDA), 2) in
+    let Kxi = H2(Ki2, nonce_to_bitstring(TA)) in
+    let Xi = XOR(Kxi, phi_i1) in
+    let s1 = MOD(Xi, m1) in 
+    let (gk':key, Tc4':bitstring, m1':prime) = sdec(s1, cp) in
+    if (Tc4', m1') = (Tc4, m1) then
+        (*Accept gk'*)
+        let gk = gk' in  
+        event MendwithLparam(IDA,IDI);
+        event MendwithLfull(IDA,IDI, key_to_bitstring(gk'), prime_to_bitstring(m1));
+        out(c, senc(gk', messageI)).
+
+(*Assume node_J is Node 7 in Fig. 5, N8 exits*)
+let node_J(IDJ:host, IDA: host, Cj:challenge, phi_j1:bitstring, TA: nonce, gk:bitstring) =
+    in(c, (cp:bitstring, Tc6:nonce));
+
+    let Rj = PUFC(Cj) in
+    let Kj2 = H3(response_to_bitstring(Rj), host_to_bitstring(IDA), 2) in
+    let (gk':key, X7':bitstring, Tc6':nonce) = sdec(bitstring_to_key(Kj2), cp) in
+    if Tc6' = Tc6 then
+        (*Accept gk' and X7'*)  
+        let gk = gk' in  
+        event MendwithLparam(IDA,IDJ);
+        event MendwithLfull(IDA,IDJ, key_to_bitstring(gk'), X7');
+        out(c, senc(gk', messageJ)).
+
+
+
+(* Role of the cluster head*)
+let head_A(IDA:host, IDI: host, IDJ: host, Ca:challenge, phi_i2:bitstring, phi_j2: bitstring, Cs:challenge, cnt1:nonce, Q:bitstring, m1:prime, gk:bitstring)=
+    event LbeginwithMparam(IDI,IDA); (*Leader starts the protocol with members*)
+    event LbeginwithMparam(IDJ,IDA);
+	let s = PUFA(Cs) in
+    (*Check cnt1 integrity; other cnts should be included below if more nodes are covererd in this Proverif code*)
+    let Q1 = H2(response_to_bitstring(s), nonce_to_bitstring(cnt1)) in
+    if Q=Q1 then
+    let s1=H3'(response_to_bitstring(s), prime_to_bitstring(m1), nonce_to_bitstring(cnt1)) in
+    new gk':key;
+    new Tc4: nonce;
+    let cp1 = senc(bitstring_to_key(s1), (gk',Tc4, m1)) in
+    let MSG4 = (cp1, Tc4, m1) in
+    event LendwithMfull(IDA,IDI, key_to_bitstring(gk'), prime_to_bitstring(m1));
+    out(c, MSG4);
+
+    let RA = PUFA(Ca) in 
+    let Kaj2 = H3(response_to_bitstring(RA), host_to_bitstring(IDJ), 2) in
+    let Kj2 = XOR(phi_j2, Kaj2) in  
+    new X7': bitstring;
+    new Tc6: nonce;
+    let cp7 =  senc(bitstring_to_key(Kj2), (gk', X7', Tc6)) in  
+    let MSG6 = (cp7, Tc6) in
+    event LendwithMfull(IDA,IDJ, key_to_bitstring(gk'), X7'); 
+    out(c, MSG6);
+    out(c, senc(gk', messageA)). 
+    
+
+
+(* Start process, A is the cluster head while I,J are sensor nodes. *)
+process
+	new Ca: challenge;
+    new Ci: challenge;
+    new Cj: challenge;
+    new Cs: challenge;
+    new cnt1: nonce;
+    new cnt2: nonce;
+    new m1: prime; 
+    new m2: prime;
+    new gk:bitstring;
+    new TA: nonce;
+    (*Assume PUF has perfect reliability*)
+	let Ra = PUFA(Ca) in
+	let Ri = PUFB(Ci) in
+    let Rj = PUFC(Cj) in
+    let s = PUFA(Cs) in
+    let s1 = H3'(response_to_bitstring(s), prime_to_bitstring(m1), nonce_to_bitstring(cnt1)) in 
+    let s2 = H3'(response_to_bitstring(s), prime_to_bitstring(m2), nonce_to_bitstring(cnt2)) in 
+
+    let Q = H2(response_to_bitstring(s), nonce_to_bitstring(cnt2)) in
+    let X = CRT(bitstring_to_key(s1), m1, bitstring_to_key(s2), m2) in
+
+	let Kai1 = H3(response_to_bitstring(Ra), host_to_bitstring(IDI), 1) in
+    let Kai2 = H3(response_to_bitstring(Ra), host_to_bitstring(IDI), 2) in
+    let Ki1 = H3(response_to_bitstring(Ri), host_to_bitstring(IDA), 1) in
+    let Ki2 = H3(response_to_bitstring(Ri), host_to_bitstring(IDA), 2) in
+    let phi_i1 = XOR(Kai1, Ki1) in
+    let phi_i2 = XOR(Kai2, Ki2) in    
+    let Kxi = H2(Ki2, nonce_to_bitstring(TA)) in
+    let phi_xi = XOR(X, Kxi) in
+	
+    let Kaj1 = H3(response_to_bitstring(Ra), host_to_bitstring(IDJ), 1) in
+    let Kaj2 = H3(response_to_bitstring(Ra), host_to_bitstring(IDJ), 2) in
+    let Kj1 = H3(response_to_bitstring(Rj), host_to_bitstring(IDA), 1) in
+    let Kj2 = H3(response_to_bitstring(Rj), host_to_bitstring(IDA), 2) in
+    let phi_j1 = XOR(Kaj1, Kj1) in
+    let phi_j2 = XOR(Kaj2, Kj2) in
+
+    (* Launch an unbounded number of sessions of the cluster head *)
+	(!head_A(IDA, IDI, IDJ, Ca, phi_i2, phi_j2, Cs, cnt1, Q, m1, gk)) | 
+	(* Launch an unbounded number of sessions of the group nodes *)
+	(!node_I(IDI, IDA, Ci, phi_i1, TA, gk, phi_xi)) | 
+	(!node_J(IDJ, IDA, Cj, phi_j1, TA, gk))
+    
+    
+    
